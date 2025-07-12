@@ -1,4 +1,4 @@
-# Naoto LZ (NLZ) Decompression Library
+# NaotoLZ (NLZ) Decompression Library
 A decompression library for a custom LZSS variant, written in Motorola 68000 assembly language.
 
 # Contents
