@@ -56,9 +56,6 @@ nlzBookmarkAn	rs.l	4					; Space to backup the address register when setting a b
 nlzBookmarkSR	rs.w	1					; Space to backup the status register flags when setting a bookmark. 
 nlzBookmarkPC	rs.l	1					; Space to backup the program counter address when setting a bookmark.
 
-; =============================================================================================================================
-; NLZ Decompressor and Queue Library - by NaotoNTP (2025)
-; =============================================================================================================================
 ; -----------------------------------------------------------------------------------------------------------------------------
 ; Initialize the NLZ art decompression queue.
 ; -----------------------------------------------------------------------------------------------------------------------------
