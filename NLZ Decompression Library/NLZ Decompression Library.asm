@@ -18,6 +18,8 @@
 ; NLZ Configuration Constants.
 NLZ_CONFIG	equ	4					; Set this value to one of the following values to configure the decompressor for your desired module size.
 								; 1 = $200 byte modules; 2 = $400 byte modules; 3 = $800 byte modules; 4 = $1000 byte modules; 5 = $2000 byte modules.
+NLZ_FAST_COPY	equ	0					; Build flag to determine whether the NLZ decompressor will use a copy device for most dictionary matches.
+								; 0 = Default match copy logic (fast speed, compact code size); 1 = Fast match copy logic (faster speed, adds ~0.5Kb to the code size).
 NLZ_BUFFER_SIZE	equ	$100<<NLZ_CONFIG			; Size of the decompression buffer (in bytes).
 NLZ_QUEUE_SIZE	equ	32					; Number of slots in the decompression queue.
 
@@ -433,6 +435,9 @@ NLZ_DecompressModule:
 		add.w	d6,a2					; Otherwise, add the buffer size to wrap the match location around.
 
 .inBounds:
+; -----------------------------------------------------------------------------------------------------------------------------
+	; Default Match Copy Logic (fast speed, compact code size).
+	if (NLZ_FAST_COPY = 0)
 		moveq	#%11,d3					; Separate the copy count into longwords and bytes.
 		and.w	d2,d3					; ^
 		lsr.w	#2,d2					; ^
@@ -452,6 +457,22 @@ NLZ_DecompressModule:
 		dbf	d3,.copyBytes				; ^
 		bra.w	.rollDescField				; Branch back and handle the next packet.
 
+; -----------------------------------------------------------------------------------------------------------------------------	
+	; Fast Match Copy Logic (faster speed, adds ~0.5Kb to the code size).
+	else
+		move.w	#$100,d3				; Move the maximum possible copy length into d3.
+		addq.w	#1,d2					; Increment d2 to reflect the copy length's true value.
+		sub.w	d2,d3					; Subtract the copy length from the maximum value to get the copy device index.
+		add.w	d3,d3					; Double the index value to make d3 into an offset.
+		jmp	.copyDevice(pc,d3.w)			; Jump to the appropriate position in the copy device and copy the match
+
+.copyDevice:		
+	rept	$100
+		move.b	(a2)+,(a1)+				; Copy a single byte of the match to the buffer. (Repeated 256 times!)
+	endr
+
+		bra.w	.rollDescField				; Branch back and handle the next packet.
+	endif	
 ; -----------------------------------------------------------------------------------------------------------------------------
 ; Table containing information related to module configurations
 ; -----------------------------------------------------------------------------------------------------------------------------
@@ -485,4 +506,6 @@ NLZ_ModuleConfig:
 	dc.b	5, %111
 	dc.w	$2000
 
+; -----------------------------------------------------------------------------------------------------------------------------
+	popo							; Restore the saved set of options.
 ; -----------------------------------------------------------------------------------------------------------------------------
