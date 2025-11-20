@@ -1,5 +1,5 @@
 ; =============================================================================================================================
-; NLZ Decompressor and Queue Library - by NaotoNTP (2025)
+; NLZ Decompressor and Queue Library v1.1.0 - by NaotoNTP (2025)
 ; =============================================================================================================================
 ; -----------------------------------------------------------------------------------------------------------------------------
 ; ASM68K Options (Comment these out if you're using an alternative assembler, including the 'popo' directive at the end of the file).
@@ -16,7 +16,7 @@
 ; -----------------------------------------------------------------------------------------------------------------------------
 
 ; NLZ Configuration Constants.
-NLZ_CONFIG	equ	4					; Set this value to one of the following values to configure the decompressor for your desired module size.
+NLZ_CONFIG	equ	3					; Set this value to one of the following values to configure the decompressor for your desired module size.
 								; 1 = $200 byte modules; 2 = $400 byte modules; 3 = $800 byte modules; 4 = $1000 byte modules; 5 = $2000 byte modules.
 NLZ_FAST_COPY	equ	0					; Build flag to determine whether the NLZ decompressor will use a copy device for most dictionary matches.
 								; 0 = Default match copy logic (fast speed, compact code size); 1 = Fast match copy logic (faster speed, adds ~0.5Kb to the code size).
@@ -27,11 +27,10 @@ NLZ_QUEUE_SIZE	equ	32					; Number of slots in the decompression queue.
 		rsreset
 nque.next	rs.w	1					; Word-size pointer to the next entry in the queue.
 nque.src	rs.l	1					; Source address (ROM) of the NLZ archive to be decompressed.
-nque.dest	rs.w	1					; Destination address (VRAM) to transfer the decompressed art to. 
+nque.dest	rs.w	1					; Destination address (moduled archives: VRAM address to transfer the decompressed art; non-moduled archives: RAM address to decompress the data to).
 nque.size	rs.b	0					; Size of a single queue entry in bytes.
 
 ; NLZ Buffer/Variable Declarations.
-nlzLgBuffer	equ	$FF0000					; Address of the large buffer to be used by non-moduled NLZ archives in the decompression queue (set to the beginning of RAM by default).
 nlzRAM		equ	$FFFF8000				; Base address for the rest of the RAM declarations (can be changed to any valid RAM address that is reachable through absolute word addressing).
 
 		rsset	nlzRAM
@@ -59,7 +58,7 @@ nlzBookmarkSR	rs.w	1					; Space to backup the status register flags when settin
 nlzBookmarkPC	rs.l	1					; Space to backup the program counter address when setting a bookmark.
 
 ; -----------------------------------------------------------------------------------------------------------------------------
-; Initialize the NLZ art decompression queue.
+; Initialize the NLZ decompression queue.
 ; -----------------------------------------------------------------------------------------------------------------------------
 ; USED:
 ;	d0/a0-a1
@@ -83,13 +82,13 @@ NLZ_InitializeQueue:
 		rts						; Return.
 
 ; -----------------------------------------------------------------------------------------------------------------------------
-; Adds a file to the NLZ art decompression queue.
+; Adds a file to the NLZ decompression queue. (formerly known as 'NLZ_AddArtToQueue')
 ; -----------------------------------------------------------------------------------------------------------------------------
 ; INPUT:
-;	d1.w -	Destination address in VRAM
+;	d1.w/l -Destination address (RAM address for data archives, VRAM address for art archives)
 ;	a1.l -	Source address of the compressed data
 ; -----------------------------------------------------------------------------------------------------------------------------
-NLZ_AddArtToQueue:
+NLZ_AddArchiveToQueue:
 		tst.w	(nlzQueueFree).w			; Is there any space in the queue for a new entry?
 		beq.s	.queueIsFull				; If there isn't, exit with a failure condition.
 
@@ -111,7 +110,7 @@ NLZ_AddArtToQueue:
 		move.w	a6,(nlzQueueTail).w			; Update the tail entry address pointer.
 		clr.w	nque.next(a6)				; Nullify the new tail entry's 'next' pointer.
 		move.l	a1,nque.src(a6)				; Set the source address for this entry.
-		move.w	d1,nque.dest(a6)			; Set the VRAM destination address for this entry.
+		move.w	d1,nque.dest(a6)			; Set the RAM/VRAM destination address for this entry.
 
 		movem.l	(sp)+,d0/a5-a6				; Restore backed up registers.
 		andi	#~$C,ccr				; Clear both the zero and negative flags on the ccr, indicating success.
@@ -263,8 +262,11 @@ NLZ_DecompressFromQueue:
 		lea	(nlzBuffer).w,a1			; Load the default buffer address into a1.
 		clr.w	d0					; Clear the lower word of d0.
 		move.b	(a0)+,d0				; Load the module configuration.
-		bne.s	.isModuled				; If the archive is indeed moduled, branch ahead.
-		lea	(nlzLgBuffer).l,a1			; Otherwise, we load the address of a larger buffer for the non-moduled archive.
+		bne.s	.isModuled				; If the archive is indeed moduled (art archive), branch ahead.
+
+		moveq	#$FFFFFFFF,d1				; Otherwise, load the destination as a RAM address instead (data archive).
+		move.w	(nlzVRAMDest).w,d1			; ^
+		move.l	d1,a1					; ^
 
 .isModuled:
 		move.b	d0,(nlzModuleConfig).w			; Save the the module configuration index.
@@ -410,12 +412,21 @@ NLZ_DecompressModule:
 	; Otherwise, this is the terminating packet and we are finished with decompression.	
 		tst.b	(nlzBookmarkFlag).w			; Is the bookmark flag set?
 		beq.s	.exit					; If not, skip over logic related to decompressing from the queue.
+		
+		tst.w	d6					; Is this a non-moduled archive?
+		beq.s	.notModuled				; If so, handle that logic.
 
 		move.l	a0,(nlzNextModule).w			; Save the address where we left off as the beginning of the next module.
 		st.b	(nlzFlushModule).w			; Set the flush module flag.
 		sf.b	(nlzBookmarkFlag).w			; Clear the bookmark flag.
 
-.exit:		
+.exit:
+		rts						; Return.
+
+; -----------------------------------------------------------------------------------------------------------------------------
+.notModuled:
+		clr.w	(nlzLastModSize).w			; Mark the archive as decompressed.
+		sf.b	(nlzBookmarkFlag).w			; Clear the bookmark flag.
 		rts						; Return.
 
 ; -----------------------------------------------------------------------------------------------------------------------------
@@ -482,27 +493,27 @@ NLZ_ModuleConfig:
 	; Copy Length Mask (byte)
 	; Module Size (word)
 
-	; 00 - non-moduled
+	; 00 - non-moduled data archive
 	dc.b	5, %111
 	dc.w	0
 
-	; 04 - moduled ($200 byte modules)
+	; 04 - moduled art archive ($200 byte modules)
 	dc.b	1, %1111111
 	dc.w	$200
 
-	; 08 - moduled ($400 byte modules)
+	; 08 - moduled art archive ($400 byte modules)
 	dc.b	2, %111111
 	dc.w	$400
 
-	; 0C - moduled ($800 byte modules)
+	; 0C - moduled art archive ($800 byte modules)
 	dc.b	3, %11111
 	dc.w	$800
 
-	; 10 - moduled ($1000 byte modules)
+	; 10 - moduled art archive ($1000 byte modules)
 	dc.b	4, %1111
 	dc.w	$1000
 
-	; 14 - moduled ($2000 byte modules)
+	; 14 - moduled art archive ($2000 byte modules)
 	dc.b	5, %111
 	dc.w	$2000
 

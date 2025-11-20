@@ -8,4 +8,6 @@ A decompression library for a custom LZSS variant, written in Motorola 68000 ass
 - This readme.
 
 # Notes
-This compression algorithm was designed and optimized for the SEGA Mega Drive's 4bpp tile-based art format. As such, please primarily think of this as a Mega Drive art compression format. While it's still possible to use algorithm to compress other types of data, there are other algorithms which are better suited to more generalized use cases.
+This compression format was designed and optimized for the SEGA Mega Drive's 4bpp tile-based art dat. That said, it performs respectably on other, more general forms of data as well.
+
+As of v1.1.0, the decompressor offers the ability to asynchronously decompress data archives to arbitrary system RAM locations as well, rather than reserving that functionality for art loading only.
