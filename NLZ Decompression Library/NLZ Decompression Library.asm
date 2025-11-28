@@ -1,5 +1,5 @@
 ; =============================================================================================================================
-; NLZ Decompressor and Queue Library v1.1.0 - by NaotoNTP (2025)
+; NLZ Decompressor and Queue Library v1.1.1 - by NaotoNTP (2025)
 ; =============================================================================================================================
 ; -----------------------------------------------------------------------------------------------------------------------------
 ; ASM68K Options (Comment these out if you're using an alternative assembler, including the 'popo' directive at the end of the file).
@@ -213,9 +213,12 @@ NLZ_FlushBuffer:
 		rol.l	#2,d0					; ^
 		lsr.w	#2,d0					; ^
 		swap	d0					; ^
-		ori.l	#$40000080,d0				; ^
+		ori.l	#$40000080,d0				; Combine the destination with the DMA command.
 
-		move.l	d0,(a0)					; Initiate the DMA transfer.
+		move.l	d0,-(sp)				; Initiate the DMA transfer.
+		move.w	(sp)+,(a0)				; NOTE: Official SEGA Mega Drive docs advise that DMA commands should
+		move.w	(sp)+,(a0)				; be sent as two words rather than one longword, and nobody knows why.
+
 		sf.b	(nlzFlushModule).w			; Clear the flush module flag.
 		rts						; Return.
 
@@ -334,7 +337,7 @@ NLZ_DecompressDirect:
 		adda.w	d0,a3					; Add the module configuration offset.
 		move.b	(a3)+,d4				; Load the shift count into d4.
 		move.b	(a3)+,d5				; Load the copy mask into d5.
-		clr.w	d6					; Clear the lower word of d6, nullifying th buffer size parameter.
+		clr.w	d6					; Clear the lower word of d6, nullifying the buffer size parameter.
 
 .decAllModules:
 		bsr.s	NLZ_DecompressModule			; Decompress a single module in the archive.
